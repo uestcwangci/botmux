@@ -35,6 +35,7 @@ import {
   ASK_SKILL, ASK_SKILL_NAME,
   WHITEBOARD_SKILL, WHITEBOARD_SKILL_NAME,
 } from './definitions.js';
+import { effectiveBuiltinSkills, effectiveBuiltinSkillContent } from './effective-builtins.js';
 
 export type SkillInjectionMode = 'global' | 'prompt' | 'off';
 
@@ -135,7 +136,7 @@ function promptCatalogDescription(entry: BuiltinSkillEntry, locale?: Locale): st
 }
 
 /** First `description:` value from a SKILL.md YAML frontmatter (single line). */
-function frontmatterDescription(content: string): string {
+export function frontmatterDescription(content: string): string {
   const fm = content.match(/^---\n([\s\S]*?)\n---/)?.[1] ?? '';
   const line = fm.split('\n').find((l) => l.startsWith('description:'));
   return line ? line.slice('description:'.length).trim() : '';
@@ -159,15 +160,21 @@ export function builtinSkillEntries(opts: {
   if (!opts.asksViaHook) defs.push({ name: ASK_SKILL_NAME, content: ASK_SKILL });
   if (opts.whiteboardEnabled) defs.push({ name: WHITEBOARD_SKILL_NAME, content: WHITEBOARD_SKILL });
   if (opts.excludeRoutingCovered) defs = defs.filter((d) => !FULLY_ROUTING_COVERED_SKILLS.has(d.name));
+  // Apply user overrides last: replaces bodies + drops user-disabled skills.
+  // Byte-identical to the pre-feature list when nothing is customized.
+  defs = effectiveBuiltinSkills(defs);
   return defs.map((d) => ({ name: d.name, description: frontmatterDescription(d.content), content: d.content }));
 }
 
 /** Full SKILL.md body for a built-in skill name — backs `botmux skill show`
  *  on-demand reads in `prompt` mode (independent of the per-CLI toggles above,
- *  so a name that made it into the catalog always resolves). */
+ *  so a name that made it into the catalog always resolves). Honors a user
+ *  override body; returns undefined for a user-disabled skill. */
 export function builtinSkillContent(name: string): string | undefined {
   const all = [...BUILTIN_SKILLS, { name: ASK_SKILL_NAME, content: ASK_SKILL }, { name: WHITEBOARD_SKILL_NAME, content: WHITEBOARD_SKILL }];
-  return all.find((d) => d.name === name)?.content;
+  const shipped = all.find((d) => d.name === name)?.content;
+  if (shipped === undefined) return undefined;
+  return effectiveBuiltinSkillContent(name, shipped);
 }
 
 /**
